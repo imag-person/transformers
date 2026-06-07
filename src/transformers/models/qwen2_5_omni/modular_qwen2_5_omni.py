@@ -1445,13 +1445,25 @@ class Qwen2_5OmniAudioEncoder(Qwen2_5OmniPreTrainedModel):
 
 
 def apply_rotary_pos_emb_vision(
-    tensor: torch.Tensor, position_embeddings: tuple[torch.Tensor, torch.Tensor]
+    tensor: torch.Tensor,
+    position_embeddings: torch.Tensor | tuple[torch.Tensor, torch.Tensor],
 ) -> torch.Tensor:
     orig_dtype = tensor.dtype
     tensor = tensor.float()
-    cos, sin = position_embeddings
-    cos = cos.unsqueeze(1).unsqueeze(0).float()
-    sin = sin.unsqueeze(1).unsqueeze(0).float()
+    if isinstance(position_embeddings, torch.Tensor):
+        warnings.warn(
+            "Passing a raw frequency tensor as `position_embeddings` to `apply_rotary_pos_emb_vision` is "
+            "deprecated and will be removed in a future version. Pass a `(cos, sin)` tuple instead.",
+            FutureWarning,
+            stacklevel=2,
+        )
+        freqs = position_embeddings
+        cos = freqs.cos().unsqueeze(1).repeat(1, 1, 2).unsqueeze(0).float()
+        sin = freqs.sin().unsqueeze(1).repeat(1, 1, 2).unsqueeze(0).float()
+    else:
+        cos, sin = position_embeddings
+        cos = cos.unsqueeze(1).unsqueeze(0).float()
+        sin = sin.unsqueeze(1).unsqueeze(0).float()
     output = (tensor * cos) + (rotate_half(tensor) * sin)
     output = output.to(orig_dtype)
     return output

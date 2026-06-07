@@ -86,6 +86,7 @@ def wrap_init_to_accept_kwargs(cls: dataclass):
         # Extract only the fields that are part of the dataclass
         dataclass_fields = {f.name for f in fields(cls)}
         standard_kwargs = {k: v for k, v in kwargs.items() if k in dataclass_fields}
+        output_hidden_states_explicitly_set = "output_hidden_states" in standard_kwargs
 
         # We need to call bare `__init__` without `__post_init__` but the `original_init` of
         # any dataclas contains a call to post-init at the end (without kwargs)
@@ -103,6 +104,8 @@ def wrap_init_to_accept_kwargs(cls: dataclass):
                 setattr(self, f.name, f.default_factory())
             else:
                 raise TypeError(f"Missing required field - '{f.name}'")
+
+        self._output_hidden_states_explicitly_set = output_hidden_states_explicitly_set
 
         # Pass any additional kwargs to `__post_init__` and let the object
         # decide whether to set the attr or use for different purposes (e.g. BC checks)
@@ -331,7 +334,11 @@ class PreTrainedConfig(PushToHubMixin, RotaryEmbeddingConfigMixin):
 
         for subconfig_key in self.sub_configs:
             subconfig = getattr(self, subconfig_key, None)
-            if subconfig is not None and hasattr(subconfig, "output_hidden_states"):
+            if (
+                subconfig is not None
+                and hasattr(subconfig, "output_hidden_states")
+                and not getattr(subconfig, "_output_hidden_states_explicitly_set", False)
+            ):
                 subconfig.output_hidden_states = True
 
     @property
@@ -442,7 +449,11 @@ class PreTrainedConfig(PushToHubMixin, RotaryEmbeddingConfigMixin):
         if key == "output_hidden_states" and value:
             self._propagate_output_hidden_states_to_sub_configs()
         elif key in super().__getattribute__("sub_configs") and value is not None:
-            if getattr(self, "output_hidden_states", False) and hasattr(value, "output_hidden_states"):
+            if (
+                getattr(self, "output_hidden_states", False)
+                and hasattr(value, "output_hidden_states")
+                and not getattr(value, "_output_hidden_states_explicitly_set", False)
+            ):
                 value.output_hidden_states = True
 
     def __getattribute__(self, key):
@@ -1178,6 +1189,7 @@ class PreTrainedConfig(PushToHubMixin, RotaryEmbeddingConfigMixin):
             "_is_quantized",
             "_auto_class",
             "_commit_hash",
+            "_output_hidden_states_explicitly_set",
             "_attn_implementation_internal",
             "_experts_implementation_internal",
             "ignore_keys_at_rope_validation",

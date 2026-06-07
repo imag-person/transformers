@@ -41,6 +41,32 @@ if _is_torch_greater_or_equal_than_2_6:
 logger = logging.get_logger(__name__)
 
 
+_BINARY_4D_FLOAT_MASK_WARNING = (
+    "A 4D attention mask with floating point dtype and only 0/1 values was passed. 4D floating point "
+    "attention masks are interpreted as additive attention bias, where masked positions should contain a "
+    "large negative value and unmasked positions should contain 0. If you intended to pass a binary mask, "
+    "use a boolean dtype instead."
+)
+
+
+def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | BlockMask | None) -> None:
+    if (
+        not isinstance(attention_mask, torch.Tensor)
+        or attention_mask.dim() != 4
+        or not torch.is_floating_point(attention_mask)
+        or attention_mask.numel() == 0
+        or attention_mask.device.type == "meta"
+        or is_tracing(attention_mask)
+    ):
+        return
+
+    mask_is_zero = attention_mask == 0
+    mask_is_one = attention_mask == 1
+    contains_zero_and_one = torch.any(mask_is_zero).item() and torch.any(mask_is_one).item()
+    if contains_zero_and_one and torch.all(mask_is_zero | mask_is_one).item():
+        logger.warning_once(_BINARY_4D_FLOAT_MASK_WARNING)
+
+
 def and_masks(*mask_functions: Callable) -> Callable:
     """Returns a mask function that is the intersection of provided mask functions"""
     if not all(callable(arg) for arg in mask_functions):
@@ -838,6 +864,7 @@ def _preprocess_mask_arguments(
     """
     # If the mask is already 4D, simply return as-is (it was already prepared, or it is custom)
     if isinstance(attention_mask, (torch.Tensor, BlockMask)) and len(attention_mask.shape) == 4:
+        _warn_if_4d_attention_mask_has_binary_values(attention_mask)
         return True, attention_mask, None, None, None, None, None
 
     # For TGI/vLLM backends, or other custom attention without equivalent mask creation: we don't need a mask!

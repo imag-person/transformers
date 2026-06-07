@@ -307,6 +307,19 @@ class PreTrainedConfig(PushToHubMixin, RotaryEmbeddingConfigMixin):
                     logger.error(f"Can't set {key} with value {value} for {self}")
                     raise err
 
+        # Propagate `output_hidden_states` to sub-configs (recursively) when enabled on the parent, so that setting it
+        # once on a composite config (e.g. a multimodal one) captures hidden states from each sub-model, including
+        # nested sub-configs, without having to set the flag on every sub-config manually. When disabled on the parent
+        # we leave sub-configs untouched.
+        if self.output_hidden_states:
+            subconfigs_to_update = [getattr(self, key, None) for key in self.sub_configs]
+            while subconfigs_to_update:
+                subconfig = subconfigs_to_update.pop()
+                if subconfig is None:
+                    continue
+                subconfig.output_hidden_states = True
+                subconfigs_to_update.extend(getattr(subconfig, key, None) for key in subconfig.sub_configs)
+
     def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls_has_custom_init = "__init__" in cls.__dict__

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from collections.abc import Callable
+import weakref
 
 import torch
 import torch.nn.functional as F
@@ -47,16 +48,23 @@ _BINARY_4D_FLOAT_MASK_WARNING = (
     "large negative value and unmasked positions should contain 0. If you intended to pass a binary mask, "
     "use a boolean dtype instead."
 )
+# `logger.warning_once` suppresses repeated log messages, but it cannot skip the tensor reductions below.
+_BINARY_4D_FLOAT_MASK_WARNING_ISSUED = False
+_VALID_ADDITIVE_4D_FLOAT_MASKS = weakref.WeakKeyDictionary()
 
 
 def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | BlockMask | None) -> None:
+    global _BINARY_4D_FLOAT_MASK_WARNING_ISSUED
+
     if (
-        not isinstance(attention_mask, torch.Tensor)
+        _BINARY_4D_FLOAT_MASK_WARNING_ISSUED
+        or not isinstance(attention_mask, torch.Tensor)
         or attention_mask.dim() != 4
         or not torch.is_floating_point(attention_mask)
         or attention_mask.numel() == 0
         or attention_mask.device.type == "meta"
         or is_tracing(attention_mask)
+        or (attention_mask in _VALID_ADDITIVE_4D_FLOAT_MASKS)
     ):
         return
 
@@ -65,6 +73,9 @@ def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | 
     contains_zero_and_one = torch.any(mask_is_zero).item() and torch.any(mask_is_one).item()
     if contains_zero_and_one and torch.all(mask_is_zero | mask_is_one).item():
         logger.warning_once(_BINARY_4D_FLOAT_MASK_WARNING)
+        _BINARY_4D_FLOAT_MASK_WARNING_ISSUED = True
+    else:
+        _VALID_ADDITIVE_4D_FLOAT_MASKS[attention_mask] = True
 
 
 def and_masks(*mask_functions: Callable) -> Callable:

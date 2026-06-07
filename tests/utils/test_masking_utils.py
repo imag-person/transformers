@@ -150,8 +150,15 @@ class MaskTest(unittest.TestCase):
         self.assertTrue((find_packed_sequence_indices(position_ids) == EXPECTED_SEQUENCE_INDICES).all())
 
     def test_warns_for_4d_float_binary_attention_mask(self):
+        from unittest.mock import patch
+
+        import transformers.masking_utils
+
         logger = logging.get_logger("transformers.masking_utils")
         logger.warning_once.cache_clear()
+        # Reset the internal flags for testing
+        transformers.masking_utils._BINARY_4D_FLOAT_MASK_WARNING_ISSUED = False
+        transformers.masking_utils._VALID_ADDITIVE_4D_FLOAT_MASKS.clear()
 
         config = LlamaConfig(attn_implementation="sdpa")
         inputs_embeds = torch.empty((1, 2, 4), dtype=torch.float32)
@@ -167,7 +174,20 @@ class MaskTest(unittest.TestCase):
         self.assertIs(returned_mask, attention_mask)
         self.assertIn("4D attention mask with floating point dtype and only 0/1 values", cl.out)
 
+        # Verify it only warns once and doesn't scan again
+        with patch("torch.any", side_effect=RuntimeError("Should not be called")) as mock_any:
+            create_bidirectional_mask(
+                config=config,
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+            )
+        mock_any.assert_not_called()
+
     def test_no_warning_for_4d_bool_or_additive_attention_mask(self):
+        from unittest.mock import patch
+
+        import transformers.masking_utils
+
         logger = logging.get_logger("transformers.masking_utils")
         config = LlamaConfig(attn_implementation="sdpa")
         inputs_embeds = torch.empty((1, 2, 4), dtype=torch.float32)
@@ -180,6 +200,9 @@ class MaskTest(unittest.TestCase):
         for attention_mask in test_cases:
             with self.subTest(dtype=attention_mask.dtype, values=attention_mask.unique().tolist()):
                 logger.warning_once.cache_clear()
+                transformers.masking_utils._BINARY_4D_FLOAT_MASK_WARNING_ISSUED = False
+                transformers.masking_utils._VALID_ADDITIVE_4D_FLOAT_MASKS.clear()
+
                 with CaptureLogger(logger) as cl:
                     returned_mask = create_bidirectional_mask(
                         config=config,
@@ -189,6 +212,18 @@ class MaskTest(unittest.TestCase):
 
                 self.assertIs(returned_mask, attention_mask)
                 self.assertNotIn("4D attention mask with floating point dtype", cl.out)
+
+                # Verify caching for additive masks (non-warning case)
+                if not attention_mask.dtype.is_floating_point:
+                    continue
+
+                with patch("torch.any", side_effect=RuntimeError("Should not be called")) as mock_any:
+                    create_bidirectional_mask(
+                        config=config,
+                        inputs_embeds=inputs_embeds,
+                        attention_mask=attention_mask,
+                    )
+                mock_any.assert_not_called()
 
     def test_nonpacked_sequence_mask_skip(self):
         config = LlamaConfig()

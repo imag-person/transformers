@@ -47,11 +47,16 @@ _BINARY_4D_FLOAT_MASK_WARNING = (
     "large negative value and unmasked positions should contain 0. If you intended to pass a binary mask, "
     "use a boolean dtype instead."
 )
+# `logger.warning_once` suppresses repeated log messages, but it cannot skip the tensor reductions below.
+_BINARY_4D_FLOAT_MASK_WARNING_ISSUED = False
 
 
 def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | BlockMask | None) -> None:
+    global _BINARY_4D_FLOAT_MASK_WARNING_ISSUED
+
     if (
-        not isinstance(attention_mask, torch.Tensor)
+        _BINARY_4D_FLOAT_MASK_WARNING_ISSUED
+        or not isinstance(attention_mask, torch.Tensor)
         or attention_mask.dim() != 4
         or not torch.is_floating_point(attention_mask)
         or attention_mask.numel() == 0
@@ -64,6 +69,7 @@ def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | 
     mask_is_one = attention_mask == 1
     contains_zero_and_one = torch.any(mask_is_zero).item() and torch.any(mask_is_one).item()
     if contains_zero_and_one and torch.all(mask_is_zero | mask_is_one).item():
+        _BINARY_4D_FLOAT_MASK_WARNING_ISSUED = True
         logger.warning_once(_BINARY_4D_FLOAT_MASK_WARNING)
 
 

@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import weakref
 from collections.abc import Callable
 
 import torch
@@ -49,6 +50,32 @@ _BINARY_4D_FLOAT_MASK_WARNING = (
 )
 # `logger.warning_once` suppresses repeated log messages, but it cannot skip the tensor reductions below.
 _BINARY_4D_FLOAT_MASK_WARNING_ISSUED = False
+_CHECKED_4D_FLOAT_MASKS = {}
+
+
+def _is_4d_float_mask_already_checked(attention_mask: torch.Tensor) -> bool:
+    mask_id = id(attention_mask)
+    mask_ref = _CHECKED_4D_FLOAT_MASKS.get(mask_id)
+    if mask_ref is None:
+        return False
+
+    mask = mask_ref()
+    if mask is attention_mask:
+        return True
+    if mask is None:
+        _CHECKED_4D_FLOAT_MASKS.pop(mask_id, None)
+    return False
+
+
+def _mark_4d_float_mask_as_checked(attention_mask: torch.Tensor) -> None:
+    mask_id = id(attention_mask)
+    try:
+        _CHECKED_4D_FLOAT_MASKS[mask_id] = weakref.ref(
+            attention_mask, lambda _: _CHECKED_4D_FLOAT_MASKS.pop(mask_id, None)
+        )
+    except TypeError:
+        # Some tensor subclasses may not support weak references; keep the warning path best-effort.
+        pass
 
 
 def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | BlockMask | None) -> None:
@@ -64,6 +91,8 @@ def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | 
         or is_tracing(attention_mask)
     ):
         return
+    if _is_4d_float_mask_already_checked(attention_mask):
+        return
 
     mask_is_zero = attention_mask == 0
     mask_is_one = attention_mask == 1
@@ -71,6 +100,8 @@ def _warn_if_4d_attention_mask_has_binary_values(attention_mask: torch.Tensor | 
     if contains_zero_and_one and torch.all(mask_is_zero | mask_is_one).item():
         _BINARY_4D_FLOAT_MASK_WARNING_ISSUED = True
         logger.warning_once(_BINARY_4D_FLOAT_MASK_WARNING)
+    else:
+        _mark_4d_float_mask_as_checked(attention_mask)
 
 
 def and_masks(*mask_functions: Callable) -> Callable:

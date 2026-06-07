@@ -23,6 +23,7 @@ from typing import Union
 
 import torch
 
+from .masking_utils import _warn_if_4d_attention_mask_has_binary_values
 from .utils.import_utils import is_torchdynamo_compiling, is_tracing
 
 
@@ -412,6 +413,7 @@ def _prepare_4d_causal_attention_mask_for_sdpa(
         )
     else:
         if attention_mask.dim() == 4:
+            _warn_if_4d_attention_mask_has_binary_values(attention_mask)
             expanded_4d_mask = attention_mask
         else:
             expanded_4d_mask = attn_mask_converter.to_4d(

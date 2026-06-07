@@ -397,3 +397,55 @@ class ConfigSubclassKwOnlyTest(unittest.TestCase):
         cfg = BertWithPooling(pooling="mean", hidden_size=256)
         self.assertEqual(cfg.pooling, "mean")
         self.assertEqual(cfg.hidden_size, 256)
+
+
+class ConfigSubConfigOutputHiddenStatesPropagationTest(unittest.TestCase):
+    def test_output_hidden_states_propagates_to_existing_subconfigs(self):
+        class ChildConfig(PreTrainedConfig):
+            pass
+
+        class ParentConfig(PreTrainedConfig):
+            sub_configs = {"child_config": ChildConfig}
+
+            child_config: PreTrainedConfig | None = None
+
+            def __post_init__(self, **kwargs):
+                self.child_config = self.child_config or ChildConfig()
+                super().__post_init__(**kwargs)
+
+        config = ParentConfig(output_hidden_states=True)
+
+        self.assertTrue(config.output_hidden_states)
+        self.assertTrue(config.child_config.output_hidden_states)
+
+    def test_output_hidden_states_propagates_when_subconfig_is_set_later(self):
+        class ChildConfig(PreTrainedConfig):
+            pass
+
+        class ParentConfig(PreTrainedConfig):
+            sub_configs = {"child_config": ChildConfig}
+
+            child_config: PreTrainedConfig | None = None
+
+        config = ParentConfig(output_hidden_states=True)
+        config.child_config = ChildConfig()
+
+        self.assertTrue(config.child_config.output_hidden_states)
+
+    def test_output_hidden_states_false_preserves_subconfig_values(self):
+        class ChildConfig(PreTrainedConfig):
+            pass
+
+        class ParentConfig(PreTrainedConfig):
+            sub_configs = {"child_config": ChildConfig}
+
+            child_config: PreTrainedConfig | None = None
+
+            def __post_init__(self, **kwargs):
+                self.child_config = ChildConfig(output_hidden_states=True)
+                super().__post_init__(**kwargs)
+
+        config = ParentConfig(output_hidden_states=False)
+
+        self.assertFalse(config.output_hidden_states)
+        self.assertTrue(config.child_config.output_hidden_states)

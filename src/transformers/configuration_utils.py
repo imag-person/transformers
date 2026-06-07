@@ -307,6 +307,8 @@ class PreTrainedConfig(PushToHubMixin, RotaryEmbeddingConfigMixin):
                     logger.error(f"Can't set {key} with value {value} for {self}")
                     raise err
 
+        self._propagate_output_hidden_states_to_sub_configs()
+
     def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls_has_custom_init = "__init__" in cls.__dict__
@@ -321,6 +323,16 @@ class PreTrainedConfig(PushToHubMixin, RotaryEmbeddingConfigMixin):
             # remote code has an init defined, but some model are not
             # See https://huggingface.co/hmellor/Ilama-3.2-1B/blob/main/configuration_ilama.py
             cls = wrap_init_to_accept_kwargs(cls)
+
+    def _propagate_output_hidden_states_to_sub_configs(self):
+        """Propagate explicit hidden-state requests from a parent config to its sub-config instances."""
+        if not self.output_hidden_states:
+            return
+
+        for subconfig_key in self.sub_configs:
+            subconfig = getattr(self, subconfig_key, None)
+            if subconfig is not None and hasattr(subconfig, "output_hidden_states"):
+                subconfig.output_hidden_states = True
 
     @property
     def name_or_path(self) -> str | None:
@@ -427,6 +439,11 @@ class PreTrainedConfig(PushToHubMixin, RotaryEmbeddingConfigMixin):
         if key in super().__getattribute__("attribute_map"):
             key = super().__getattribute__("attribute_map")[key]
         super().__setattr__(key, value)
+        if key == "output_hidden_states" and value:
+            self._propagate_output_hidden_states_to_sub_configs()
+        elif key in super().__getattribute__("sub_configs") and value is not None:
+            if getattr(self, "output_hidden_states", False) and hasattr(value, "output_hidden_states"):
+                value.output_hidden_states = True
 
     def __getattribute__(self, key):
         if key != "attribute_map" and key in super().__getattribute__("attribute_map"):

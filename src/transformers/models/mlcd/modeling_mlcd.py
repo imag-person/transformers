@@ -68,7 +68,7 @@ class MLCDRotaryEmbedding(nn.Module):
             num_patches_width (int): Number of patches in the width dimension.
 
         Returns:
-            torch.Tensor: Rotary positional embeddings for the given grid size.
+            tuple[torch.Tensor, torch.Tensor]: Cosine and sine rotary positional embeddings for the given grid size.
         """
         # Generate position IDs for height and width dimensions
         hpos_ids = (

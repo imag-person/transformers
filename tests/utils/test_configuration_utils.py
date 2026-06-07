@@ -445,3 +445,31 @@ class ConfigSubConfigOutputHiddenStatesPropagationTest(unittest.TestCase):
         config = ParentConfig()
         self.assertTrue(config.child_a.output_hidden_states)
         self.assertFalse(config.child_b.output_hidden_states)
+
+    def test_output_hidden_states_propagates_to_nested_subconfigs(self):
+        class GrandChildConfig(PreTrainedConfig):
+            pass
+
+        class ChildConfig(PreTrainedConfig):
+            sub_configs = {"grandchild": GrandChildConfig}
+
+            grandchild: PreTrainedConfig | None = None
+
+            def __post_init__(self, **kwargs):
+                if self.grandchild is None:
+                    self.grandchild = GrandChildConfig()
+                super().__post_init__(**kwargs)
+
+        class ParentConfig(PreTrainedConfig):
+            sub_configs = {"child": ChildConfig}
+
+            child: PreTrainedConfig | None = None
+
+            def __post_init__(self, **kwargs):
+                if self.child is None:
+                    self.child = ChildConfig()
+                super().__post_init__(**kwargs)
+
+        config = ParentConfig(output_hidden_states=True)
+        self.assertTrue(config.child.output_hidden_states)
+        self.assertTrue(config.child.grandchild.output_hidden_states)

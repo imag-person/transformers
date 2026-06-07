@@ -979,13 +979,14 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb_vision(tensor: torch.Tensor, freqs: torch.Tensor) -> torch.Tensor:
+def apply_rotary_pos_emb_vision(
+    tensor: torch.Tensor, position_embeddings: tuple[torch.Tensor, torch.Tensor]
+) -> torch.Tensor:
     orig_dtype = tensor.dtype
     tensor = tensor.float()
-    cos = freqs.cos()
-    sin = freqs.sin()
-    cos = cos.unsqueeze(1).repeat(1, 1, 2).unsqueeze(0).float()
-    sin = sin.unsqueeze(1).repeat(1, 1, 2).unsqueeze(0).float()
+    cos, sin = position_embeddings
+    cos = cos.unsqueeze(1).unsqueeze(0).float()
+    sin = sin.unsqueeze(1).unsqueeze(0).float()
     output = (tensor * cos) + (rotate_half(tensor) * sin)
     output = output.to(orig_dtype)
     return output
@@ -1012,7 +1013,7 @@ class Qwen2_5OmniVisionAttention(nn.Module):
         self,
         hidden_states: torch.Tensor,
         cu_seqlens: torch.Tensor,
-        position_embeddings: torch.Tensor | None = None,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
         **kwargs,
     ) -> torch.Tensor:
         seq_length = hidden_states.shape[0]
@@ -1125,7 +1126,7 @@ class Qwen2_5OmniVisionBlock(GradientCheckpointingLayer):
         self,
         hidden_states: torch.Tensor,
         cu_seqlens: torch.Tensor,
-        position_embeddings: torch.Tensor | None = None,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor] | None = None,
         **kwargs,
     ) -> torch.Tensor:
         r"""
@@ -1152,8 +1153,10 @@ class Qwen2_5_VisionRotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
-    def forward(self, position_ids: torch.Tensor) -> torch.Tensor:
-        return (position_ids.unsqueeze(-1) * self.inv_freq).flatten(1)
+    def forward(self, position_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        rotary_pos_emb = (position_ids.unsqueeze(-1) * self.inv_freq).flatten(1)
+        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        return emb.cos(), emb.sin()
 
 
 class Qwen2_5_VisionPatchEmbed(nn.Module):
@@ -1242,8 +1245,8 @@ class Qwen2_5OmniVisionEncoder(Qwen2_5OmniPreTrainedModel):
             stacklevel=2,
         )
         position_ids = get_vision_position_ids(grid_thw, self.spatial_merge_size)
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        return rotary_pos_emb
+        position_embeddings = self.rotary_pos_emb(position_ids)
+        return position_embeddings
 
     def get_window_index(self, grid_thw):
         warnings.warn(
@@ -1292,10 +1295,13 @@ class Qwen2_5OmniVisionEncoder(Qwen2_5OmniPreTrainedModel):
         hidden_states = hidden_states[window_index, :, :]
         hidden_states = hidden_states.reshape(seq_len, -1)
 
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        rotary_pos_emb = rotary_pos_emb.reshape(seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1)
-        rotary_pos_emb = rotary_pos_emb[window_index, :, :]
-        rotary_pos_emb = rotary_pos_emb.reshape(seq_len, -1)
+        position_embeddings = self.rotary_pos_emb(position_ids)
+        position_embeddings = tuple(
+            position_embedding.reshape(seq_len // self.spatial_merge_unit, self.spatial_merge_unit, -1)[
+                window_index, :, :
+            ].reshape(seq_len, -1)
+            for position_embedding in position_embeddings
+        )
 
         # Modification here
         for layer_num, blk in enumerate(self.blocks):
@@ -1307,7 +1313,7 @@ class Qwen2_5OmniVisionEncoder(Qwen2_5OmniPreTrainedModel):
             hidden_states = blk(
                 hidden_states,
                 cu_seqlens=cu_seqlens_now,
-                position_embeddings=rotary_pos_emb,
+                position_embeddings=position_embeddings,
                 **kwargs,
             )
 

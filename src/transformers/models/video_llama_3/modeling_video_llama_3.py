@@ -51,8 +51,10 @@ class VideoLlama3VisionRotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
-    def forward(self, position_ids: torch.Tensor) -> torch.Tensor:
-        return (position_ids.unsqueeze(-1) * self.inv_freq).flatten(1)
+    def forward(self, position_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        rotary_pos_emb = (position_ids.unsqueeze(-1) * self.inv_freq).flatten(1)
+        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        return emb.cos(), emb.sin()
 
 
 class VideoLlama3VisionEmbeddings(nn.Module):
@@ -426,9 +428,7 @@ class VideoLlama3VisionModel(VideoLlama3PreTrainedModel):
         cu_seqlens = get_vision_cu_seqlens(grid_thw, kwargs=kwargs)
 
         hidden_states = self.embeddings(pixel_values.type(self.dtype))
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
-        position_embeddings = (emb.cos(), emb.sin())
+        position_embeddings = self.rotary_pos_emb(position_ids)
 
         encoder_outputs: BaseModelOutput = self.encoder(
             hidden_states,

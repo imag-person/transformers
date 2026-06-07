@@ -120,6 +120,7 @@ def wrap_init_to_accept_kwargs(cls: dataclass):
     return cls
 
 
+@wrap_init_to_accept_kwargs
 @dataclass_transform(kw_only_default=True)
 @strict(accept_kwargs=True)
 @dataclass(repr=False)

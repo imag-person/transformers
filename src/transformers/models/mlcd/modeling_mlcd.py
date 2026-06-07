@@ -59,7 +59,7 @@ class MLCDRotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
-    def forward(self, num_patches_height: int, num_patches_width: int) -> torch.Tensor:
+    def forward(self, num_patches_height: int, num_patches_width: int) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Calculate the Rotary Position Embedding (RoPE) for MLCDVisionModel based on the grid size.
 
@@ -68,7 +68,7 @@ class MLCDRotaryEmbedding(nn.Module):
             num_patches_width (int): Number of patches in the width dimension.
 
         Returns:
-            torch.Tensor: Rotary positional embeddings for the given grid size.
+            tuple[torch.Tensor, torch.Tensor]: Cosine and sine rotary positional embeddings for the given grid size.
         """
         # Generate position IDs for height and width dimensions
         hpos_ids = (
@@ -89,7 +89,8 @@ class MLCDRotaryEmbedding(nn.Module):
         # Select and flatten the embeddings based on the position IDs
         rotary_pos_emb = rotary_pos_emb_full[pos_ids].flatten(1)
 
-        return rotary_pos_emb
+        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        return emb.cos(), emb.sin()
 
 
 class MLCDVisionEmbeddings(nn.Module):
@@ -509,11 +510,16 @@ class MLCDVisionModel(MLCDPreTrainedModel):
 
         num_patches_height = pixel_values.shape[-2] // self.config.patch_size
         num_patches_width = pixel_values.shape[-1] // self.config.patch_size
-        rotary_pos_emb = self.vision_rotary_embedding(num_patches_height, num_patches_width)
-        rotary_pos_emb = rotary_pos_emb.to(self.class_pos_emb.device)
-        rotary_pos_emb = torch.cat([self.class_pos_emb, rotary_pos_emb], dim=0)
-        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
-        position_embeddings = (emb.cos(), emb.sin())
+        position_embeddings = self.vision_rotary_embedding(num_patches_height, num_patches_width)
+        position_embeddings = tuple(
+            position_embedding.to(self.class_pos_emb.device) for position_embedding in position_embeddings
+        )
+        class_pos_emb = torch.cat((self.class_pos_emb, self.class_pos_emb), dim=-1)
+        class_position_embeddings = (class_pos_emb.cos(), class_pos_emb.sin())
+        position_embeddings = tuple(
+            torch.cat([class_position_embedding, position_embedding], dim=0)
+            for class_position_embedding, position_embedding in zip(class_position_embeddings, position_embeddings)
+        )
 
         hidden_states = self.embeddings(pixel_values)
         hidden_states = self.pre_layrnorm(hidden_states)

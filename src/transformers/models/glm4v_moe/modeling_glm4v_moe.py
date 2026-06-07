@@ -465,8 +465,10 @@ class Glm4vMoeVisionRotaryEmbedding(nn.Module):
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
-    def forward(self, position_ids: torch.Tensor) -> torch.Tensor:
-        return (position_ids.unsqueeze(-1) * self.inv_freq).flatten(1)
+    def forward(self, position_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        rotary_pos_emb = (position_ids.unsqueeze(-1) * self.inv_freq).flatten(1)
+        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
+        return emb.cos(), emb.sin()
 
 
 @use_kernel_forward_from_hub("RMSNorm")
@@ -788,8 +790,8 @@ class Glm4vMoeVisionModel(Glm4vMoePreTrainedModel):
             stacklevel=2,
         )
         position_ids = get_vision_position_ids(grid_thw, self.spatial_merge_size)
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        return rotary_pos_emb, position_ids
+        position_embeddings = self.rotary_pos_emb(position_ids)
+        return position_embeddings, position_ids
 
     @merge_with_config_defaults
     @capture_outputs
@@ -811,9 +813,7 @@ class Glm4vMoeVisionModel(Glm4vMoePreTrainedModel):
 
         hidden_states = self.patch_embed(hidden_states)
         hidden_states = self.post_conv_layernorm(hidden_states)
-        rotary_emb = self.rotary_pos_emb(position_ids)
-        emb = torch.cat((rotary_emb, rotary_emb), dim=-1)
-        position_embeddings = (emb.cos(), emb.sin())
+        position_embeddings = self.rotary_pos_emb(position_ids)
 
         seqlens = cu_seqlens[1:] - cu_seqlens[:-1]
         hidden_states = self.embeddings(

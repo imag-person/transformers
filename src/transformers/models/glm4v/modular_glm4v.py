@@ -614,8 +614,8 @@ class Glm4vVisionModel(Glm4vPreTrainedModel):
             stacklevel=2,
         )
         position_ids = get_vision_position_ids(grid_thw, self.spatial_merge_size)
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        return rotary_pos_emb, position_ids
+        position_embeddings = self.rotary_pos_emb(position_ids)
+        return position_embeddings, position_ids
 
     @merge_with_config_defaults
     @capture_outputs
@@ -637,9 +637,7 @@ class Glm4vVisionModel(Glm4vPreTrainedModel):
 
         hidden_states = self.patch_embed(hidden_states)
         hidden_states = self.post_conv_layernorm(hidden_states)
-        rotary_emb = self.rotary_pos_emb(position_ids)
-        emb = torch.cat((rotary_emb, rotary_emb), dim=-1)
-        position_embeddings = (emb.cos(), emb.sin())
+        position_embeddings = self.rotary_pos_emb(position_ids)
 
         seqlens = cu_seqlens[1:] - cu_seqlens[:-1]
         hidden_states = self.embeddings(

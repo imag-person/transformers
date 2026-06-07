@@ -79,6 +79,7 @@ class MaskTest(unittest.TestCase):
         logger = logging.get_logger("transformers.masking_utils")
         logger.warning_once.cache_clear()
         masking_utils._BINARY_4D_FLOAT_MASK_WARNING_ISSUED = False
+        masking_utils._CHECKED_4D_FLOAT_MASKS.clear()
 
     def test_packed_sequence_mask_sdpa(self):
         config = LlamaConfig()
@@ -180,6 +181,27 @@ class MaskTest(unittest.TestCase):
         config = LlamaConfig(attn_implementation="sdpa")
         inputs_embeds = torch.empty((1, 2, 4), dtype=torch.float32)
         attention_mask = torch.tensor([[[[1.0, 0.0], [1.0, 1.0]]]])
+
+        create_bidirectional_mask(config=config, inputs_embeds=inputs_embeds, attention_mask=attention_mask)
+
+        with mock.patch("transformers.masking_utils.torch.any", side_effect=AssertionError("mask was rescanned")):
+            with CaptureLogger(logger) as cl:
+                returned_mask = create_bidirectional_mask(
+                    config=config,
+                    inputs_embeds=inputs_embeds,
+                    attention_mask=attention_mask,
+                )
+
+        self.assertIs(returned_mask, attention_mask)
+        self.assertEqual("", cl.out)
+
+    def test_4d_float_additive_attention_mask_warning_check_is_cached(self):
+        logger = logging.get_logger("transformers.masking_utils")
+        self._reset_binary_4d_float_mask_warning()
+
+        config = LlamaConfig(attn_implementation="sdpa")
+        inputs_embeds = torch.empty((1, 2, 4), dtype=torch.float32)
+        attention_mask = torch.tensor([[[[0.0, torch.finfo(torch.float32).min], [0.0, 0.0]]]])
 
         create_bidirectional_mask(config=config, inputs_embeds=inputs_embeds, attention_mask=attention_mask)
 

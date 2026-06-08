@@ -53,6 +53,20 @@ class DiaTokenizerTest(TokenizerTesterMixin, unittest.TestCase):
         self.assertEqual(vocab_keys[S2], "[S2]")
         self.assertEqual(len(vocab_keys), 256)
 
+    def test_get_vocab_and_convert_tokens_to_string_use_added_tokens_cache(self):
+        tokenizer = DiaTokenizer()
+        original_property = type(tokenizer).added_tokens_encoder
+
+        def fail_if_property_is_read(_):
+            raise AssertionError("added_tokens_encoder property should not be read")
+
+        try:
+            type(tokenizer).added_tokens_encoder = property(fail_if_property_is_read)
+            self.assertEqual(tokenizer.get_vocab()["[S1]"], S1)
+            self.assertEqual(tokenizer.convert_tokens_to_string(["a", "[S1]"]), "a[S1]")
+        finally:
+            type(tokenizer).added_tokens_encoder = original_property
+
     def test_vocab_size(self):
         # utf-8 == 2**8 == 256
         self.assertEqual(self.get_tokenizer().vocab_size, 256)

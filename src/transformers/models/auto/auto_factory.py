@@ -191,6 +191,18 @@ def _get_model_class(config, model_mapping):
     return supported_models[0]
 
 
+def _copy_parent_config_attributes_to_text_config(parent_config, text_config):
+    # Check both `quantization_config` being present and also not null,
+    # as a `config.json` can have `"quantization_config": null` in it
+    parent_quant = getattr(parent_config, "quantization_config", None)
+    if parent_quant is not None:
+        text_config.quantization_config = parent_quant
+
+    parent_dtype = getattr(parent_config, "dtype", None)
+    if parent_dtype is not None:
+        text_config.dtype = parent_dtype
+
+
 class _BaseAutoModelClass:
     # Base class for auto models.
     _model_mapping = None
@@ -242,11 +254,7 @@ class _BaseAutoModelClass:
                 # modules_to_not_convert and skip-module matching when composite-model module prefixes differ.
                 parent_config = config
                 config = config.get_text_config()
-                # Check both `quantization_config` being present and also not null,
-                # as a `config.json` can have `"quantization_config": null` in it
-                parent_quant = getattr(parent_config, "quantization_config", None)
-                if parent_quant is not None:
-                    config.quantization_config = parent_quant
+                _copy_parent_config_attributes_to_text_config(parent_config, config)
             return model_class._from_config(config, **kwargs)
 
         raise ValueError(
@@ -396,11 +404,7 @@ class _BaseAutoModelClass:
                 # modules_to_not_convert and skip-module matching when composite-model module prefixes differ.
                 parent_config = config
                 config = config.get_text_config()
-                # Check both `quantization_config` being present and also not null,
-                # as a `config.json` can have `"quantization_config": null` in it
-                parent_quant = getattr(parent_config, "quantization_config", None)
-                if parent_quant is not None:
-                    config.quantization_config = parent_quant
+                _copy_parent_config_attributes_to_text_config(parent_config, config)
             return model_class.from_pretrained(
                 pretrained_model_name_or_path, *model_args, config=config, **hub_kwargs, **kwargs
             )

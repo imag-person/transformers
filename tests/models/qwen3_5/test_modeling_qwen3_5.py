@@ -421,6 +421,26 @@ class Qwen3_5ModelTest(ModelTesterMixin, GenerationTesterMixin, unittest.TestCas
         self.assertIsInstance(model, Qwen3_5ForCausalLM)
         self.assertIsInstance(model.config, Qwen3_5TextConfig)
 
+    def test_automodelforcausallm_preserves_parent_dtype(self):
+        config = self.model_tester.get_config()
+        config.dtype = torch.float32
+        config.text_config.dtype = torch.bfloat16
+
+        with torch.device("meta"):
+            model = AutoModelForCausalLM.from_config(config)
+
+        self.assertEqual(model.config.dtype, torch.float32)
+
+        config = self.model_tester.get_config()
+        config.text_config.dtype = torch.bfloat16
+        full_model = Qwen3_5ForConditionalGeneration(config).to(torch.bfloat16)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            full_model.save_pretrained(tmp_dir)
+            model = AutoModelForCausalLM.from_pretrained(tmp_dir, dtype=torch.float32)
+
+        self.assertEqual(model.config.dtype, torch.float32)
+        self.assertEqual(next(model.parameters()).dtype, torch.float32)
+
     @unittest.skip(
         "Conversion only for the `CausalLM` loading from saved `ConditionalLM`, doesn't apply to simple VLM"
     )

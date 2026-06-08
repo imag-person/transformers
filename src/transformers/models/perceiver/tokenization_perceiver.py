@@ -181,7 +181,10 @@ class PerceiverTokenizer(PreTrainedTokenizer):
         """Converts a sequence of tokens (string) in a single string."""
         bstring = b""
         for token in tokens:
-            if token in self.added_tokens_encoder:
+            # Read the cached `_added_tokens_encoder` map directly; the `added_tokens_encoder`
+            # property rebuilds and re-sorts the full added-token mapping on every access, which
+            # here happens once per token.
+            if token in self._added_tokens_encoder:
                 tok_string = str(token).encode("utf-8")
             else:
                 tok_string = bytes([ord(token)])

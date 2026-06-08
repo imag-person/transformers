@@ -13,6 +13,8 @@
 # limitations under the License.
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
@@ -22,8 +24,73 @@ from transformers.integrations.executorch import (
     TorchExportableModuleForDecoderOnlyLM,
     TorchExportableModuleWithHybridCache,
     TorchExportableModuleWithStaticCache,
+    convert_and_export_with_cache,
 )
 from transformers.testing_utils import require_torch
+
+
+@require_torch
+class ExecutorchModalityInputsTest(unittest.TestCase):
+    def test_static_cache_module_forward_with_modality_inputs(self):
+        """Test TorchExportableModuleWithStaticCache forwards optional image and audio inputs."""
+
+        class DummyModel:
+            def __call__(self, **kwargs):
+                self.kwargs = kwargs
+                return SimpleNamespace(logits=torch.ones(1, 1, 2))
+
+        module = TorchExportableModuleWithStaticCache.__new__(TorchExportableModuleWithStaticCache)
+        torch.nn.Module.__init__(module)
+        module.model = DummyModel()
+        module.static_cache = SimpleNamespace(
+            layers=[SimpleNamespace(cumulative_length=torch.zeros(1, dtype=torch.long))]
+        )
+
+        pixel_values = torch.zeros(1, 3, 16, 16)
+        input_features = torch.zeros(1, 80, 8)
+        output = module.forward(
+            input_ids=torch.tensor([[1]]),
+            pixel_values=pixel_values,
+            input_features=input_features,
+            cache_position=torch.tensor([0]),
+        )
+
+        self.assertEqual(output.shape, (1, 1, 2))
+        self.assertIs(module.model.kwargs["pixel_values"], pixel_values)
+        self.assertIs(module.model.kwargs["input_features"], input_features)
+
+    def test_convert_and_export_with_cache_uses_modality_inputs(self):
+        """Test convert_and_export_with_cache adds inferred and explicit modality examples to export kwargs."""
+
+        from transformers.integrations import executorch as executorch_module
+
+        model = SimpleNamespace(
+            config=SimpleNamespace(
+                vision_config=SimpleNamespace(image_size=16, num_channels=3),
+                num_mel_bins=80,
+                max_source_positions=4,
+            ),
+            device=torch.device("cpu"),
+        )
+
+        with (
+            patch.object(executorch_module, "TorchExportableModuleWithStaticCache", return_value=object()),
+            patch.object(executorch_module, "is_torch_greater_or_equal", return_value=True),
+            patch.object(executorch_module.torch.export, "export", return_value="exported") as export_mock,
+        ):
+            self.assertEqual(convert_and_export_with_cache(model), "exported")
+            kwargs = export_mock.call_args.kwargs["kwargs"]
+            self.assertEqual(kwargs["pixel_values"].shape, (1, 3, 16, 16))
+            self.assertEqual(kwargs["input_features"].shape, (1, 80, 8))
+
+            explicit_pixel_values = torch.ones(1, 3, 8, 8)
+            convert_and_export_with_cache(
+                model,
+                example_modality_inputs={"pixel_values": explicit_pixel_values, "input_features": None},
+            )
+            kwargs = export_mock.call_args.kwargs["kwargs"]
+            self.assertIs(kwargs["pixel_values"], explicit_pixel_values)
+            self.assertNotIn("input_features", kwargs)
 
 
 @require_torch

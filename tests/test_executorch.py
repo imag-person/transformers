@@ -123,3 +123,57 @@ class ExecutorchTest(unittest.TestCase):
             inputs_embeds=self.inputs_embeds, cache_position=self.cache_position
         )
         torch.testing.assert_close(eager_output_embeds, exported_output_embeds, atol=1e-4, rtol=1e-4)
+
+    def test_static_cache_module_forward_with_multimodal_inputs(self):
+        """Test TorchExportableModuleWithStaticCache forward accepts multimodal inputs"""
+        generation_config = GenerationConfig(
+            use_cache=True,
+            cache_implementation="static",
+            cache_config={"batch_size": 1, "max_cache_len": 32, "device": "cpu"},
+        )
+
+        # Set generation config on model
+        self.model.generation_config = generation_config
+        module = TorchExportableModuleWithStaticCache(self.model)
+
+        # Test that pixel_values and input_features are accepted (even if ignored by text-only model)
+        pixel_values = torch.randn(1, 3, 224, 224, dtype=torch.float32)
+        input_features = torch.randn(1, 80, 1500, dtype=torch.float32)
+
+        # Should not raise an error
+        output = module.forward(
+            input_ids=self.input_ids,
+            cache_position=self.cache_position,
+            pixel_values=pixel_values,
+            input_features=input_features,
+        )
+        self.assertIsNotNone(output)
+
+    def test_hybrid_cache_module_forward_with_multimodal_inputs(self):
+        """Test TorchExportableModuleWithHybridCache forward accepts multimodal inputs"""
+        config = self.model.config
+        config.sliding_window = 16
+        config.layer_types = ["full_attention"] * config.num_hidden_layers
+
+        generation_config = GenerationConfig(
+            use_cache=True,
+            cache_implementation="hybrid",
+            cache_config={"batch_size": 1, "max_cache_len": 32, "device": "cpu"},
+        )
+
+        # Set generation config on model
+        self.model.generation_config = generation_config
+        module = TorchExportableModuleWithHybridCache(self.model)
+
+        # Test that pixel_values and input_features are accepted
+        pixel_values = torch.randn(1, 3, 224, 224, dtype=torch.float32)
+        input_features = torch.randn(1, 80, 1500, dtype=torch.float32)
+
+        # Should not raise an error
+        output = module.forward(
+            input_ids=self.input_ids,
+            cache_position=self.cache_position,
+            pixel_values=pixel_values,
+            input_features=input_features,
+        )
+        self.assertIsNotNone(output)

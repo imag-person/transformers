@@ -391,9 +391,7 @@ class VideoLlama3VisionModel(VideoLlama3PreTrainedModel):
         cu_seqlens = get_vision_cu_seqlens(grid_thw, kwargs=kwargs)
 
         hidden_states = self.embeddings(pixel_values.type(self.dtype))
-        rotary_pos_emb = self.rotary_pos_emb(position_ids)
-        emb = torch.cat((rotary_pos_emb, rotary_pos_emb), dim=-1)
-        position_embeddings = (emb.cos(), emb.sin())
+        position_embeddings = self.rotary_pos_emb(position_ids)
 
         encoder_outputs: BaseModelOutput = self.encoder(
             hidden_states,

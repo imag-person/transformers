@@ -37,6 +37,8 @@ from ...test_modeling_common import ModelTesterMixin, floats_tensor
 if is_torch_available():
     import torch
 
+    from transformers.models.mlcd.modeling_mlcd import MLCDRotaryEmbedding
+
 
 class MLCDVisionModelTester:
     def __init__(
@@ -128,6 +130,21 @@ class MLCDVisionModelTest(ModelTesterMixin, unittest.TestCase):
     def setUp(self):
         self.model_tester = MLCDVisionModelTester(self)
         self.config_tester = ConfigTester(self, config_class=MLCDVisionConfig, has_text_modality=False)
+
+    def test_vision_rotary_embedding_returns_position_embeddings(self):
+        rotary_embedding = MLCDRotaryEmbedding(dim=8)
+
+        cos, sin = rotary_embedding(num_patches_height=2, num_patches_width=3)
+
+        hpos_ids = torch.arange(2).unsqueeze(1).expand(-1, 3)
+        wpos_ids = torch.arange(3).unsqueeze(0).expand(2, -1)
+        pos_ids = torch.stack([hpos_ids.flatten(), wpos_ids.flatten()], dim=-1)
+        seq = torch.arange(3, dtype=rotary_embedding.inv_freq.dtype)
+        rotary_pos_emb_full = torch.outer(seq, rotary_embedding.inv_freq)
+        freqs = rotary_pos_emb_full[pos_ids].flatten(1)
+        expected_embeddings = torch.cat((freqs, freqs), dim=-1)
+        torch.testing.assert_close(cos, expected_embeddings.cos())
+        torch.testing.assert_close(sin, expected_embeddings.sin())
 
     def test_model_get_set_embeddings(self):
         config, _ = self.model_tester.prepare_config_and_inputs_for_common()

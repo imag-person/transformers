@@ -52,6 +52,8 @@ from ...test_pipeline_mixin import PipelineTesterMixin
 if is_torch_available():
     import torch
 
+    from transformers.models.qwen2_vl.modeling_qwen2_vl import VisionRotaryEmbedding
+
 
 if is_vision_available():
     from PIL import Image
@@ -195,6 +197,17 @@ class Qwen2VLModelTest(ModelTesterMixin, GenerationTesterMixin, PipelineTesterMi
 
     def test_config(self):
         self.config_tester.run_common_tests()
+
+    def test_vision_rotary_embedding_returns_position_embeddings(self):
+        rotary_embedding = VisionRotaryEmbedding(dim=8)
+        position_ids = torch.tensor([[0, 1], [2, 3]])
+
+        cos, sin = rotary_embedding(position_ids)
+
+        freqs = (position_ids.unsqueeze(-1) * rotary_embedding.inv_freq).flatten(1)
+        expected_embeddings = torch.cat((freqs, freqs), dim=-1)
+        torch.testing.assert_close(cos, expected_embeddings.cos())
+        torch.testing.assert_close(sin, expected_embeddings.sin())
 
     def test_mismatching_num_image_tokens(self):
         """

@@ -247,6 +247,12 @@ class _BaseAutoModelClass:
                 parent_quant = getattr(parent_config, "quantization_config", None)
                 if parent_quant is not None:
                     config.quantization_config = parent_quant
+                # Same reasoning for `dtype`: a user-requested dtype is folded into the
+                # parent (composite) config, so carry it over to the text sub-config
+                # instead of dropping it when the parent is discarded.
+                parent_dtype = getattr(parent_config, "dtype", None)
+                if parent_dtype is not None:
+                    config.dtype = parent_dtype
             return model_class._from_config(config, **kwargs)
 
         raise ValueError(
@@ -401,6 +407,12 @@ class _BaseAutoModelClass:
                 parent_quant = getattr(parent_config, "quantization_config", None)
                 if parent_quant is not None:
                     config.quantization_config = parent_quant
+                # Same reasoning for `dtype`: a user-requested dtype is folded into the
+                # parent (composite) config, so carry it over to the text sub-config
+                # instead of dropping it when the parent is discarded.
+                parent_dtype = getattr(parent_config, "dtype", None)
+                if parent_dtype is not None:
+                    config.dtype = parent_dtype
             return model_class.from_pretrained(
                 pretrained_model_name_or_path, *model_args, config=config, **hub_kwargs, **kwargs
             )

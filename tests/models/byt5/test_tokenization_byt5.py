@@ -108,6 +108,20 @@ class ByT5TokenizationTest(TokenizerTesterMixin, unittest.TestCase):
         # encode/decode, but with `encode` instead of `__call__`
         self.assertEqual(tokenizer.decode(tokenizer.encode("e è é ê ë")), "e è é ê ë</s>")
 
+    def test_get_vocab_and_convert_tokens_to_string_use_added_tokens_cache(self):
+        tokenizer = ByT5Tokenizer()
+        original_property = type(tokenizer).added_tokens_encoder
+
+        def fail_if_property_is_read(_):
+            raise AssertionError("added_tokens_encoder property should not be read")
+
+        try:
+            type(tokenizer).added_tokens_encoder = property(fail_if_property_is_read)
+            self.assertEqual(tokenizer.get_vocab()["</s>"], tokenizer.eos_token_id)
+            self.assertEqual(tokenizer.convert_tokens_to_string(["a", "</s>"]), "a</s>")
+        finally:
+            type(tokenizer).added_tokens_encoder = original_property
+
     def test_prepare_batch_integration(self):
         tokenizer = self.t5_base_tokenizer
         src_text = ["A long paragraph for summarization.", "Another paragraph for summarization."]

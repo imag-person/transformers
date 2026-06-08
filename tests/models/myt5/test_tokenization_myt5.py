@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import binascii
+import tempfile
 import unittest
 
 from transformers import MyT5Tokenizer
@@ -76,6 +77,26 @@ class TestByteRewriter(unittest.TestCase):
         out_hex = ["00", "01", "xx", "03", "61"]
 
         self.assertEqual(decompose_rewriter.rewrite_bytes(in_hex), out_hex)
+
+
+class MyT5TokenizationUnitTest(unittest.TestCase):
+    def test_get_vocab_and_convert_tokens_to_string_use_added_tokens_cache(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as vocab_file:
+            json.dump({"decompose_map": {}, "merge_map": {}}, vocab_file)
+            vocab_file.flush()
+            tokenizer = MyT5Tokenizer(vocab_file.name)
+
+        original_property = type(tokenizer).added_tokens_encoder
+
+        def fail_if_property_is_read(_):
+            raise AssertionError("added_tokens_encoder property should not be read")
+
+        try:
+            type(tokenizer).added_tokens_encoder = property(fail_if_property_is_read)
+            self.assertEqual(tokenizer.get_vocab()["</s>"], tokenizer.eos_token_id)
+            self.assertEqual(tokenizer.convert_tokens_to_string(["61", "</s>"]), "a</s>")
+        finally:
+            type(tokenizer).added_tokens_encoder = original_property
 
 
 # This is way too slow, let's not run it on CircleCI. When trying to use cache, we get OOM and worker(s) crashed.

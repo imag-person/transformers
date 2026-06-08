@@ -140,6 +140,60 @@ class AutoModelTest(unittest.TestCase):
         self.assertIsNotNone(model)
         self.assertIsInstance(model, GPT2LMHeadModel)
 
+    def test_dtype_propagates_to_text_config_for_composite_model(self):
+        # A user-requested `dtype` must be honored when a composite (multimodal) checkpoint is
+        # loaded through an Auto class that resolves to the text-only model. Previously the dtype
+        # was folded into the parent composite config and silently dropped when the config was
+        # swapped for its `text_config`, so the request was ignored (it fell back to the weights'
+        # dtype). This is the offline regression for that path.
+        from transformers import Qwen3_5Config, Qwen3_5ForConditionalGeneration
+
+        config = Qwen3_5Config(
+            text_config=dict(
+                vocab_size=64,
+                hidden_size=32,
+                intermediate_size=64,
+                num_hidden_layers=2,
+                num_attention_heads=2,
+                num_key_value_heads=1,
+                head_dim=16,
+                linear_conv_kernel_dim=2,
+                linear_key_head_dim=8,
+                linear_value_head_dim=8,
+                linear_num_key_heads=1,
+                linear_num_value_heads=2,
+                max_position_embeddings=128,
+                layer_types=["linear_attention", "full_attention"],
+                rope_parameters={
+                    "rope_type": "default",
+                    "rope_theta": 10000.0,
+                    "partial_rotary_factor": 1.0,
+                    "mrope_section": [3, 3, 2],
+                },
+            ),
+            vision_config=dict(
+                depth=2,
+                hidden_size=32,
+                out_hidden_size=32,
+                intermediate_size=64,
+                num_heads=2,
+                patch_size=4,
+                temporal_patch_size=2,
+                spatial_merge_size=1,
+            ),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            Qwen3_5ForConditionalGeneration(config).to(torch.bfloat16).save_pretrained(tmp_dir)
+
+            # The requested dtype must win over the checkpoint's bfloat16 weights.
+            model = AutoModelForCausalLM.from_pretrained(tmp_dir, dtype=torch.float32)
+            self.assertEqual(next(model.parameters()).dtype, torch.float32)
+
+            # Sanity check: without a requested dtype we still honor the checkpoint weights.
+            model = AutoModelForCausalLM.from_pretrained(tmp_dir)
+            self.assertEqual(next(model.parameters()).dtype, torch.bfloat16)
+
     @slow
     def test_model_for_masked_lm(self):
         model_name = "google-bert/bert-base-uncased"

@@ -348,13 +348,16 @@ class MyT5Tokenizer(PreTrainedTokenizer):
         for token in tokens:
             if token in self.added_tokens_decoder:
                 out_tokens.append(self.added_tokens_decoder[token])
-            elif token in self.added_tokens_encoder:
+            # Read the cached `_added_tokens_encoder` map directly; the `added_tokens_encoder`
+            # property rebuilds and re-sorts the full added-token mapping on every access, which
+            # here happens once per token.
+            elif token in self._added_tokens_encoder:
                 out_tokens.append(token)
             else:
                 out_tokens.append(token)
 
         out_tokens = self.morphological_decode(out_tokens)
-        _added_tokens = set(self.added_tokens_decoder.values()) | set(self.added_tokens_encoder)
+        _added_tokens = set(self.added_tokens_decoder.values()) | set(self._added_tokens_encoder)
         for token in out_tokens:
             if token in _added_tokens:
                 bstring += bytes(token, "utf-8")
